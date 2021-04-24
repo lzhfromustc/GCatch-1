@@ -24,7 +24,9 @@ func BuildGraph(ch *instinfo.Channel, vecChannel []*instinfo.Channel, vecLocker 
 
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in BuildGraph ", r)
+			if config.Print_Debug_Info {
+				fmt.Println("Recovered in BuildGraph ", r)
+			}
 		}
 	}()
 
@@ -377,8 +379,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 
 		ops, ok := instinfo.MapInst2ChanOp[inst] // The slice op can at most have 1 element
 		if !ok {
-			fmt.Println("Warning in ProcessInstGetNode: can't find op for a channel make")
-			output.PrintIISrc(inst)
+			if config.Print_Debug_Info {
+				fmt.Println("Warning in ProcessInstGetNode: can't find op for a channel make")
+				output.PrintIISrc(inst)
+			}
 			panic(1)
 			//op = instinfo.Anytime_make(inst)
 			normal, newStatus := newNormal(inst, ctx)
@@ -436,8 +440,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 
 		nextBB := inst.Block().Succs[0]
 		if len(nextBB.Instrs) == 0 {
-			fmt.Println("Warning in ProcessInstGetNode: a jump's target is an empty bb")
-			output.PrintIISrc(inst)
+			if config.Print_Debug_Info {
+				fmt.Println("Warning in ProcessInstGetNode: a jump's target is an empty bb")
+				output.PrintIISrc(inst)
+			}
 			panic(1)
 
 			newStatus := storeGraphInfo(inst, ctx, newJump)
@@ -487,8 +493,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 		thenBB := inst.Block().Succs[0]
 		elseBB := inst.Block().Succs[1]
 		if len(thenBB.Instrs) == 0 || len(elseBB.Instrs) == 0 {
-			fmt.Println("Warning in ProcessInstGetNode: a If's target is an empty bb")
-			output.PrintIISrc(inst)
+			if config.Print_Debug_Info {
+				fmt.Println("Warning in ProcessInstGetNode: a If's target is an empty bb")
+				output.PrintIISrc(inst)
+			}
 			panic(1)
 			return nil
 		}
@@ -660,8 +668,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 		// Prepare the ops for each case. Note that some cases may have no op, if pointer analysis failed to find
 		ops, ok := instinfo.MapInst2ChanOp[inst]
 		if !ok {
-			fmt.Println("Warning in ProcessInstGetNode: a select has no corresponding OP")
-			output.PrintIISrc(inst)
+			if config.Print_Debug_Info {
+				fmt.Println("Warning in ProcessInstGetNode: a select has no corresponding OP")
+				output.PrintIISrc(inst)
+			}
 			panic(1)
 		}
 
@@ -683,16 +693,20 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 			switch concrete := op.(type) {
 			case *instinfo.ChSend:
 				if concrete.CaseIndex == -1 {
-					fmt.Println("Warning in ProcessInstGetNode: a send is not in select, but we are dealing with select inst:")
-					output.PrintIISrc(inst)
+					if config.Print_Debug_Info {
+						fmt.Println("Warning in ProcessInstGetNode: a send is not in select, but we are dealing with select inst:")
+						output.PrintIISrc(inst)
+					}
 					panic(1)
 					continue
 				}
 				index = concrete.CaseIndex
 			case *instinfo.ChRecv:
 				if concrete.CaseIndex == -1 {
-					fmt.Println("Warning in ProcessInstGetNode: a recv is not in select, but we are dealing with select inst:")
-					output.PrintIISrc(inst)
+					if config.Print_Debug_Info {
+						fmt.Println("Warning in ProcessInstGetNode: a recv is not in select, but we are dealing with select inst:")
+						output.PrintIISrc(inst)
+					}
 					panic(1)
 					continue
 				}
@@ -841,8 +855,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 		var chOp instinfo.ChanOp
 		chOps, ok := instinfo.MapInst2ChanOp[inst]
 		if !ok {
-			fmt.Println("Warning in ProcessInstGetNode: can't find op for a send")
-			output.PrintIISrc(inst)
+			if config.Print_Debug_Info {
+				fmt.Println("Warning in ProcessInstGetNode: can't find op for a send")
+				output.PrintIISrc(inst)
+			}
 			chOp = instinfo.AddNotDependSend(inst)
 		}
 
@@ -892,8 +908,10 @@ func ProcessInstGetNode(targetInst ssa.Instruction, ctx *CallCtx) Node {
 			vecChOp, ok := instinfo.MapInst2ChanOp[inst] //vecChOp can have at most 1 element
 
 			if !ok {
-				fmt.Println("Warning in ProcessInstGetNode: can't find op for a receive")
-				output.PrintIISrc(inst)
+				if config.Print_Debug_Info {
+					fmt.Println("Warning in ProcessInstGetNode: can't find op for a receive")
+					output.PrintIISrc(inst)
+				}
 				panic(1)
 				//chOp = instinfo.Anytime_recv(inst)
 				newNormal, newStatus := newNormal(inst, ctx)
@@ -1027,8 +1045,10 @@ func handleTodoInsts(inst ssa.Instruction, ctx *CallCtx, flagRundefer bool, todo
 			var chOp instinfo.ChanOp
 			vecChOps, ok := instinfo.MapInst2ChanOp[anInst] // because this is close, vecChOps can at most have 1 element
 			if !ok {
-				fmt.Println("Warning in ProcessInstGetNode: can't find op for a close(chan)")
-				output.PrintIISrc(anInst)
+				if config.Print_Debug_Info {
+					fmt.Println("Warning in ProcessInstGetNode: can't find op for a close(chan)")
+					output.PrintIISrc(anInst)
+				}
 				panic(1)
 				//chOp = instinfo.Anytime_close(anInst)
 				newNormal, newStatus := newNormal(inst, ctx)
