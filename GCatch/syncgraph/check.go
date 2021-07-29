@@ -6,6 +6,7 @@ import (
 	"github.com/system-pclub/GCatch/GCatch/instinfo"
 	"github.com/system-pclub/GCatch/GCatch/output"
 	"os"
+	"strconv"
 )
 
 func ReportNoViolation() {
@@ -118,7 +119,7 @@ func (g SyncGraph) CheckWithZ3() bool {
 			pathId2AllBlockPos[i] = append(pathId2AllBlockPos[i], emptyBlockPos)
 		}
 
-		allBlockPosComb := []map[int]blockingPos{}
+		allBlockPosComb := make(map[string] map[int]blockingPos)
 
 		mapIndices := make(map[int]int)
 		for pathId, _ := range pathId2AllBlockPos {
@@ -166,7 +167,12 @@ func (g SyncGraph) CheckWithZ3() bool {
 					}
 				}
 				if boolAllEmpty == false {
-					allBlockPosComb = append(allBlockPosComb, newComb)
+					strHash := ""
+					for index, value := range newComb {
+						strHash += strconv.Itoa(index) + ":" + strconv.Itoa(value.pathId) + ":" + strconv.Itoa(value.pNodeId)
+						strHash += ";"
+					}
+					allBlockPosComb[strHash] = newComb
 				}
 			}
 
@@ -195,9 +201,7 @@ func (g SyncGraph) CheckWithZ3() bool {
 		}
 
 		// For every blocking op of target channel on any path
-		for i := 0; i < len(allBlockPosComb); i++ {
-			var blockPosComb map[int]blockingPos
-			blockPosComb = allBlockPosComb[i]
+		for _, blockPosComb := range allBlockPosComb {
 
 			for _, blockPos := range blockPosComb {
 				if blockPos.pNodeId != emptyPNodeId {

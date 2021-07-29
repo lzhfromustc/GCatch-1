@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"github.com/system-pclub/GCatch/GCatch/checkers/bmoc"
-	"github.com/system-pclub/GCatch/GCatch/checkers/doublelock"
 	"github.com/system-pclub/GCatch/GCatch/ssabuild"
 	"github.com/system-pclub/GCatch/GCatch/tools/go/callgraph"
 	"github.com/system-pclub/GCatch/GCatch/tools/go/mypointer"
@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/system-pclub/GCatch/GCatch/checkers/forgetunlock"
 	"github.com/system-pclub/GCatch/GCatch/config"
 )
 
@@ -29,25 +28,22 @@ func main() {
 
 	pProjectPath := flag.String("path","","Full path of the target project")
 	pRelativePath := flag.String("include","","Relative path (what's after /src/) of the target project")
-	pCheckerName := flag.String("checker", "BMOC", "the checker to be used, divided by \":\"")
 	pShowCompileError := flag.Bool("compile-error", false, "If fail to compile a package, show the errors of compilation")
 	pExcludePath := flag.String("exclude", "vendor", "Name of directories that you want to ignore, divided by \":\"")
 	pRobustMod := flag.Bool("r", false, "If the main package can't pass compiler, check subdirectories one by one")
 	pFnPointerAlias := flag.Bool("pointer", true, "Whether alias analysis is used to figure out function pointers")
-	pSkipPkg := flag.Int("skip", -1, "Skip the first N packages")
-	pExitPkg := flag.Int("exit", 99999, "Exit when meet the Nth packages")
 	pPrintMod := flag.String( "print-mod", "", "Print information like the number of channels, divided by \":\"")
+
+	pOutput := flag.String("output","","Full path of an output file to record sync structs")
 
 	flag.Parse()
 
 	strProjectPath := *pProjectPath
 	strRelativePath := *pRelativePath
-	mapCheckerName := util.SplitStr2Map(*pCheckerName, ":")
 	boolShowCompileError := *pShowCompileError
 	boolRobustMod := *pRobustMod
 	boolFnPointerAlias := *pFnPointerAlias
-	intSkipPkg := *pSkipPkg
-	intExitPkg := *pExitPkg
+	strOutput := *pOutput
 
 	go func(){
 		time.Sleep(time.Duration(config.MAX_GCATCH_DDL_SECOND) * time.Second)
@@ -86,28 +82,29 @@ func main() {
 		os.Exit(3)
 	}
 
-	for strCheckerName, _ := range mapCheckerName {
-		switch strCheckerName {
-		case "unlock": forgetunlock.Initialize()
-		case "double": doublelock.Initialize()
-		case "conflict", "structfield", "fatal", "BMOC": // no need to initialize these checkers
-		default:
-			fmt.Println("Warning, a not existing checker is in -checker= flag:", strCheckerName)
-		}
-	}
-
 	var errMsg string
 	var bSucc bool
+
+	// prepare output
+	out, err := os.OpenFile(strOutput, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		fmt.Println("Failed to create output file:", strOutput)
+		return
+	}
+	defer out.Close()
+
+	w := bufio.NewWriter(out)
+	defer w.Flush()
 
 
 	config.Prog, config.Pkgs, bSucc, errMsg = ssabuild.BuildWholeProgram(config.StrEntrancePath, false, boolShowCompileError) // Create SSA packages for the whole program including the dependencies.
 
 	if bSucc && len(config.Prog.AllPackages()) > 0 {
 		// Step 2.1, Case 1: built SSA successfully, run the checkers in process()
-		fmt.Println("Successfully built whole program. Now running checkers")
+		fmt.Println("Successfully built whole program. Now printing to output")
 
-		detect(mapCheckerName)
-
+		PrintAllSyncStruct(w)
+		
 	} else {
 		// Step 2.1, Case 2: building SSA failed
 		fmt.Println("Failed to build the whole program. The entrance package or its dependencies have error.", errMsg)
@@ -115,7 +112,7 @@ func main() {
 
 	// Step 2.2 If -r is used, continue checking all child packages
 	if ! boolRobustMod {
-		fmt.Println("Exit. If you want to scan subdirectories and use -race, please use -r")
+		fmt.Println("Exit. If you want to scan subdirectories, please use -r")
 		return
 	}
 
@@ -133,17 +130,11 @@ func main() {
 			break
 		}
 
-		if index < intSkipPkg || index >= intExitPkg {
-			continue
-		}
-
 
 		config.Prog, config.Pkgs, bSucc, errMsg = ssabuild.BuildWholeProgram(wpath.StrPath, false, boolShowCompileError) // Create SSA packages for the whole program including the dependencies.
 		if bSucc {
 			fmt.Println("Successful. Package NO.", index, ":", wpath.StrPath, " Num of Lock & <-:", wpath.NumLock + wpath.NumSend)
-			detect(mapCheckerName)
-			mainDur := time.Since(mainStart)
-			fmt.Println("\n\nTime passed for seconds", mainDur.Seconds())
+			PrintAllSyncStruct(w)
 		} else {
 			// Step 2.4, Case 2 : building SSA failed; build its children packages
 			fmt.Println("Fail. Package NO.", index, ":", wpath.StrPath, " Num of Lock & <-:", wpath.NumLock + wpath.NumSend, " error:", errMsg)
@@ -156,12 +147,12 @@ func main() {
 				config.Prog, config.Pkgs, bSucc, errMsg = ssabuild.BuildWholeProgram(child.StrPath, true, boolShowCompileError) // Force the package to build, at least some dependencies of it are being built and checked
 				if bSucc {
 					fmt.Println("\tSuccessfully built sub-Package NO.",j,":\t",child.StrPath, " Num of Lock & <-:", child.NumLock + child.NumSend)
-					detect(mapCheckerName)
+					PrintAllSyncStruct(w)
 				} else if errMsg == "load_err" {
 					fmt.Println("\tFailed to build sub-Package NO.",j,":\t",child.StrPath, " Num of Lock & <-:", child.NumLock + child.NumSend)
 				} else if errMsg == "type_err" {
 					fmt.Println("\tPartially built sub-Package NO.",j,":\t",child.StrPath, " Num of Lock & <-:", child.NumLock + child.NumSend)
-					detect(mapCheckerName)
+					PrintAllSyncStruct(w)
 
 				}
 			}
@@ -204,4 +195,21 @@ func BuildCallGraph() * callgraph.Graph {
 	}
 	graph := result.CallGraph
 	return graph
+}
+
+var mapPrinted = make(map[string]struct{})
+
+func PrintAllSyncStruct(w *bufio.Writer) {
+	vecAllSyncStruct := util.ListAllSyncStruct(config.Prog)
+
+
+	for _, syncStruct := range vecAllSyncStruct {
+		if syncStruct.Pkg != "" && syncStruct.TypeName != "" {
+			str := syncStruct.Pkg + ":" + syncStruct.TypeName + "\n"
+			if _, exist := mapPrinted[str]; !exist {
+				mapPrinted[str] = struct{}{}
+				w.WriteString(str)
+			}
+		}
+	}
 }

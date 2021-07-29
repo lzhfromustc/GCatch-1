@@ -39,8 +39,17 @@ func Detect() {
 
 
 
-	// Check all channels together. We can just check the first channel from main(), and let all other channels be checked together with it
-	CheckCh(vecChannel[0], vecChannel, vecLocker, mapDependency)
+	// Check all channels together
+	var boolFoundBug bool
+	for _, ch := range vecChannel {
+		boolFoundBug = boolFoundBug || CheckCh(ch, vecChannel, vecLocker, mapDependency)
+	}
+
+	if boolFoundBug {
+		syncgraph.ReportViolation()
+	} else {
+		syncgraph.ReportNoViolation()
+	}
 }
 
 var countCh int
@@ -77,7 +86,7 @@ func OKToCheck(ch *instinfo.Channel) (boolCheck bool) {
 	return
 }
 
-func CheckCh(ch *instinfo.Channel, vecChannel []*instinfo.Channel, vecLocker []*instinfo.Locker, mapDependency map[interface{}]*syncgraph.DPrim) {
+func CheckCh(ch *instinfo.Channel, vecChannel []*instinfo.Channel, vecLocker []*instinfo.Locker, mapDependency map[interface{}]*syncgraph.DPrim) (boolFoundBug bool) {
 	defer func() {
 		if r := recover(); r != nil {
 			return
@@ -105,12 +114,7 @@ func CheckCh(ch *instinfo.Channel, vecChannel []*instinfo.Channel, vecLocker []*
 		// If this is a buffered channel with dynamic size and no critical section is found, skip this channel
 		syncgraph.ReportNotSure()
 	} else {
-		foundBug := syncGraph.CheckWithZ3()
-		if foundBug {
-			syncgraph.ReportViolation()
-		} else {
-			syncgraph.ReportNoViolation()
-		}
+		boolFoundBug = syncGraph.CheckWithZ3()
 	}
 	return
 }

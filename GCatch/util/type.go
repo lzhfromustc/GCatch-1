@@ -179,6 +179,176 @@ func GetBaseType(v ssa.Value) types.Type {
 	return v.Type()
 }
 
+type SyncStruct struct {
+	Pkg string
+	TypeName string
+	Type string
+	ContainSync bool
+	Field map[string]string
+	Potential bool
+}
+
+func ListAllSyncStruct(prog *ssa.Program) []*SyncStruct {
+	allSyncStruct := *new([]*SyncStruct)
+
+	allPotentialStruct := *new([]*SyncStruct)
+	for _, pkg := range prog.AllPackages() { //loop all packages
+		if pkg == nil {
+			continue
+		}
+
+
+		for memName, _ := range pkg.Members { //loop through all members; the member may be a func or a type; if it is type, loop through all its methods
+
+			//check if this member is a type
+			memAsType := pkg.Type(memName)
+			if memAsType != nil {
+				//this member is a type
+
+				newStructPtr := findStructPotential(memAsType)
+				if newStructPtr == nil {
+					continue
+				}
+
+				if newStructPtr.Potential == true {
+					allPotentialStruct = append(allPotentialStruct, newStructPtr)
+				}
+			}
+		}
+	}
 
 
 
+	//now all potential structs are listed
+	//at this point, each struct in all_potential_struct has struct.potential == true, meaning it may be moved to all_sync_struct
+	//append structs that ContainSync = true, to all_sync_struct
+
+	for _, syncStruct := range allPotentialStruct {
+		if (*syncStruct).ContainSync {
+			allSyncStruct = append(allSyncStruct, syncStruct)
+			(*syncStruct).Potential = false
+		}
+	}
+
+
+	for {
+		flagBreak := true
+
+	potential:
+		for _, structPotential := range allPotentialStruct {
+			if structPotential.Potential == false { //this struct has already been moved to all_sync_struct
+				continue
+			}
+			if structPotential.TypeName == "node" && structPotential.Pkg == "v2store" {
+				print()
+			}
+
+			for _, fieldType := range structPotential.Field {
+				for _, structSync := range allSyncStruct {
+					if structPotential.TypeName == "node" && structPotential.Pkg == "v2store" && structSync.TypeName == "store" && structSync.Pkg == "v2store" {
+						print()
+					}
+					if strings.Contains(fieldType, structSync.Type) { // This struct contains a field, which is in all_sync_struct
+						allSyncStruct = append(allSyncStruct, structPotential)
+						structPotential.Potential = false
+						flagBreak = false // don't break the infinite loop since there is still at least one struct moving from all_potential_struct to all_sync_struct
+						continue potential
+					}
+				}
+			}
+		}
+
+		if flagBreak == true {
+			break
+		}
+
+	}
+
+	return allSyncStruct
+}
+
+func findStructPotential(memAsType *ssa.Type) (result *SyncStruct) {
+	result = nil
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
+	structType := memAsType.String()
+	structContainsync := false
+	structPotential := false
+
+	fieldsStr := memAsType.Object().Type().Underlying().String()
+	if !strings.HasPrefix(fieldsStr,"struct{") || fieldsStr == "struct{}" {
+		return nil
+	}
+	fieldsStr = strings.Replace(fieldsStr,"struct{","",1)
+	fieldsStr = fieldsStr[:len(fieldsStr) - 1] //delete the last char, which is "}"
+	fields := strings.Split(fieldsStr,"; ")
+	if len(fields) == 0  {
+		return nil
+	} else {
+		str := strings.ReplaceAll(fields[0]," ","")
+		if len(str) == 0 {
+			return nil
+		}
+	}
+
+	structField := make(map[string]string)
+	for index,field := range fields {
+		fieldElement := strings.Split(field," ")
+		var fieldName, fieldType string
+		if len(fieldElement) == 1 { //anonymous field
+			fieldName = string(index)
+			fieldType = fieldElement[0]
+			if fieldElement[0] == "chan" && len(fieldElement) > 1 {
+				fieldType = "chan " + fieldElement[1]
+			}
+		} else {
+			fieldName = fieldElement[0]
+			fieldType = fieldElement[1]
+			if fieldElement[1] == "chan" && len(fieldElement) > 2 {
+				fieldType = "chan " + fieldElement[2]
+			}
+		}
+		structField[fieldName] = fieldType
+		if isTypeSync(fieldType) {
+			structContainsync = true
+			structPotential = true
+		}
+		if strings.Contains(fieldType,"/") {
+			structPotential = true
+		}
+	}
+	newStructPtr := &SyncStruct{
+		Pkg:         "",
+		TypeName:    memAsType.Name(),
+		Type:        structType,
+		ContainSync: structContainsync,
+		Field:       structField,
+		Potential:   structPotential,
+	}
+	if memAsType.Package() != nil {
+		if memAsType.Package().Pkg != nil {
+			newStructPtr.Pkg = memAsType.Package().Pkg.Name()
+		}
+	}
+	result = newStructPtr
+	return
+}
+
+func isTypeSync(str string) bool {
+	str = strings.ReplaceAll(str,"*","")
+	str = strings.ReplaceAll(str,"[]","")
+	if strings.HasPrefix(str,"sync.") || strings.Contains(str,"<-") || strings.HasPrefix(str,"chan ") {
+		return true
+	} else if strings.Contains(str,"map[") {
+		if strings.Contains(str,"sync.") || strings.Contains(str,"<-") || strings.Contains(str,"chan ") {
+			return true
+		} else {
+			return false
+		}
+	} else {
+		return false
+	}
+}

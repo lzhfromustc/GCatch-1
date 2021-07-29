@@ -1,9 +1,24 @@
-# Automatically Detecting and Fixing Concurrency Bugs in Go Software Systems
+This is a modified GCatch that can analyze an application and print (append mode) into an output file: all structs that contain any sync primitive, directly or indirectly.
 
-## Descriptions
+The output of this tool can be used to make gooracle/reflect.go faster.
 
-This is the code repository of our ASPLOS paper [1]. GCatch is a suite of static detectors that can analyze large, real Go software. GFix is an automated fixing tool that can synthesize patches for blocking misuse-of-channel (BMOC) bugs detected by GCatch. We evaluated GCatch and GFix in 21 open-source Go projects (e.g., Docker, Kubernetes, gRPC). In total, GCatch detects 149 BMOC bugs 119 traditional concurrency bugs and GFix successfully generates patches for 124 BMOC bugs. The detailed experimental data can be found [here](https://docs.google.com/spreadsheets/d/1mDxB6IRxrTodF9CrmpUu72E6673y5s9BkjKuTjtx1qc/edit?usp=sharing). 
+Output format:
+`v2store:watcher
+v2store:watcherHub
+v2store:store
+v2store:EventHistory
+v2store:node
+v2store:ttlKeyHeap`
+Each line is `pkgName:structName`. We don't print the full path of pkg, and don't care if the pkg is third party or not. structName is also purely a name.
 
-
-[1] Ziheng Liu, Shuofei Zhu, Boqin Qin, Hao Chen, and Linhai Song. “Automatically Detecting and Fixing Concurrency Bugs in Go Software Systems.” In ASPLOS’2021. 
-
+How to run this tool:
+export GOPATH=/GOPATH/To/This/Tool
+cd GCatch/cmd/GCatch
+go install
+cd $GOPATH/bin
+export GOPATH=/Path/To/App
+export GO111MODULE=off
+./GCatch -path=/data/ziheng/shared/gotest/stubs/etcd/src/go.etcd.io/etcd -include=go.etcd.io/etcd 
+ -output=/data/ziheng/shared/gotest/stubs/etcd/src/go.etcd.io/etcd/struct.txt 
+ # you can add -r flag to recursively scan all child pkg in -path, but this may take lots of time and the output will have redundant lines
+ 
